@@ -20,5 +20,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  open-webui:
-    external: true
+  open-webui: {}
