@@ -1,0 +1,12 @@
+/* 複数モデル表示時の幅を最大化 */
+[id^="chat-container"] .max-w-6xl,
+[id^="chat-container"] .max-w-5xl,
+[id^="chat-container"] .max-w-4xl,
+[id^="chat-container"] .max-w-3xl,
+[id^="chat-container"] .max-w-2xl,
+[id^="chat-container"] .max-w-xl,
+[id^="chat-container"] .max-w-lg,
+[id^="chat-container"] .max-w-md {
+    max-width: 98% !important;
+    width: 98% !important;
+}

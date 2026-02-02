@@ -12,9 +12,10 @@
 	import { tick, getContext, onMount, createEventDispatcher } from 'svelte';
 	const dispatch = createEventDispatcher();
 
+	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
-	import { getChatList, updateChatById } from '$lib/apis/chats';
-	import { copyToClipboard, extractCurlyBraceWords } from '$lib/utils';
+	import { getChatList, updateChatById, createNewChat } from '$lib/apis/chats';
+	import { copyToClipboard, extractCurlyBraceWords, createMessagesList } from '$lib/utils';
 
 	import Message from './Messages/Message.svelte';
 	import Loader from '../common/Loader.svelte';
@@ -260,6 +261,60 @@
 		}
 	};
 
+	const branchMessage = async (message) => {
+		// Create a new chat with messages up to and including this message
+		// Build the message list from root to this message
+		let messageList = [];
+		let currentMsg = message;
+
+		// Traverse from the message back to the root
+		while (currentMsg) {
+			messageList.unshift(currentMsg);
+			currentMsg = currentMsg.parentId ? history.messages[currentMsg.parentId] : null;
+		}
+
+		// Create new history with only messages up to this point
+		const newHistory = {
+			messages: {},
+			currentId: message.id
+		};
+
+		// Copy messages to new history
+		messageList.forEach((msg) => {
+			newHistory.messages[msg.id] = { ...msg };
+		});
+
+		// Get the original chat title from the chats store
+		const originalChat = $chats?.find((c) => c.id === chatId);
+		const originalTitle = originalChat?.title ?? $i18n.t('Branched Chat');
+
+		try {
+			// Create a new chat with the branched history
+			const newChat = await createNewChat(
+				localStorage.token,
+				{
+					title: `${originalTitle}_branch`,
+					history: newHistory,
+					messages: messageList
+				},
+				null
+			);
+
+			if (newChat) {
+				// Update chat list
+				currentChatPage.set(1);
+				await chats.set(await getChatList(localStorage.token, $currentChatPage));
+
+				// Navigate to the new chat
+				toast.success($i18n.t('Chat branched successfully'));
+				await goto(`/c/${newChat.id}`);
+			}
+		} catch (error) {
+			console.error('Failed to create branched chat:', error);
+			toast.error($i18n.t('Failed to create branched chat'));
+		}
+	};
+
 	const rateMessage = async (messageId, rating) => {
 		history.messages[messageId].annotation = {
 			...history.messages[messageId].annotation,
@@ -457,6 +512,7 @@
 								{regenerateResponse}
 								{continueResponse}
 								{mergeResponses}
+								{branchMessage}
 								{addMessages}
 								{triggerScroll}
 								{readOnly}

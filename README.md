@@ -1,5 +1,13 @@
 # Open WebUI 👋
 
+> **📌 このリポジトリについて**  
+> このリポジトリは [Open WebUI v0.7.2](https://github.com/open-webui/open-webui/releases/tag/v0.7.2) からのフォークです。
+> 
+> **追加された機能：**
+> - 🎨 カスタム CSS の変更
+> - 🌿 チャットのブランチ機能
+> - 🚀 Ollama なしでの WebUI 起動オプション
+
 ![GitHub stars](https://img.shields.io/github/stars/open-webui/open-webui?style=social)
 ![GitHub forks](https://img.shields.io/github/forks/open-webui/open-webui?style=social)
 ![GitHub watchers](https://img.shields.io/github/watchers/open-webui/open-webui?style=social)
@@ -167,6 +175,23 @@ This installation method uses a single container image that bundles Open WebUI w
 Both commands facilitate a built-in, hassle-free installation of both Open WebUI and Ollama, ensuring that you can get everything up and running swiftly.
 
 After installation, you can access Open WebUI at [http://localhost:3000](http://localhost:3000). Enjoy! 😄
+
+### Installation without Ollama (Using Docker Compose)
+
+If you want to run Open WebUI **without Ollama** (for example, to use external APIs like OpenAI, or a separately hosted Ollama instance), use the provided `docker-compose.no-ollama.yaml` file:
+
+```bash
+# Build and start Open WebUI without Ollama
+docker compose -f docker-compose.no-ollama.yaml up --build -d
+
+# Stop
+docker compose -f docker-compose.no-ollama.yaml down
+```
+
+You can configure external API endpoints by editing the environment variables in `docker-compose.no-ollama.yaml`:
+- For external Ollama: Uncomment and set `OLLAMA_BASE_URL`
+- For OpenAI: Add your `OPENAI_API_KEY`
+- For other APIs: Add the appropriate configuration
 
 ### Other Installation Methods
 
