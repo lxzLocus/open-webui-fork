@@ -565,6 +565,14 @@ input[type='number'] {
 	@apply dark:bg-gray-800 bg-gray-50;
 }
 
+/* Hide language select and buttons in code block */
+.tiptap pre button,
+.tiptap pre select,
+.tiptap pre .code-block-button,
+.tiptap pre .language-select {
+	display: none !important;
+}
+
 .tiptap p code {
 	color: #eb5757;
 	border-width: 0px;

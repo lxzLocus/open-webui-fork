@@ -957,6 +957,52 @@
 										return false; // Let ProseMirror handle the Enter key normally
 									}
 
+									// Check if inside code block and handle Slack-like exit behavior
+									// (3x Shift+Enter with 2 empty lines exits the code block)
+									const isInCodeBlock = isInside(['codeBlock']);
+									if (isInCodeBlock) {
+										// Get the text content of the code block
+										const codeBlockNode = $from.node($from.depth);
+										const codeText = codeBlockNode.textContent;
+										const cursorPosInBlock = $from.pos - $from.start($from.depth);
+
+										// Get the text before the cursor
+										const textBeforeCursor = codeText.slice(0, cursorPosInBlock);
+
+										// Check if the text ends with two consecutive newlines
+										// (user pressed Shift+Enter twice already creating 2 empty lines)
+										const hasDoubleEmptyLine = textBeforeCursor.endsWith('\n\n');
+
+										if (hasDoubleEmptyLine) {
+											// Exit the code block: delete the two empty lines and move cursor after code block
+											const start = $from.start($from.depth);
+											const end = $from.end($from.depth);
+
+											// Find the position where the two empty lines start
+											// (2 newlines back from cursor)
+											const deleteFrom = $from.pos - 2;
+											const deleteTo = $from.pos;
+
+											// Create transaction to delete the empty lines
+											let tr = state.tr.delete(deleteFrom, deleteTo);
+
+											// Exit the code block - move cursor to after the code block
+											const codeBlockEndPos = end - 2; // Adjusted for deletion
+											tr = tr.setSelection(TextSelection.create(tr.doc, codeBlockEndPos));
+
+											// Exit the code block and create a new paragraph after it
+											view.dispatch(tr);
+											editor.commands.exitCode();
+											editor.commands.createParagraphNear();
+
+											event.preventDefault();
+											return true;
+										}
+
+										// Normal Shift+Enter in code block - just add a new line
+										return false; // Let ProseMirror handle it
+									}
+
 									editor.commands.enter(); // Insert a new line
 									view.dispatch(view.state.tr.scrollIntoView()); // Move viewport to the cursor
 									event.preventDefault();
