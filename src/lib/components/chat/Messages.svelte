@@ -14,7 +14,7 @@
 
 	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
-	import { getChatList, updateChatById, createNewChat } from '$lib/apis/chats';
+	import { getChatList, getChatById, updateChatById, createNewChat } from '$lib/apis/chats';
 	import { copyToClipboard, extractCurlyBraceWords, createMessagesList } from '$lib/utils';
 
 	import Message from './Messages/Message.svelte';
@@ -284,9 +284,32 @@
 			newHistory.messages[msg.id] = { ...msg };
 		});
 
-		// Get the original chat title from the chats store
-		const originalChat = $chats?.find((c) => c.id === chatId);
-		const originalTitle = originalChat?.title ?? $i18n.t('Branched Chat');
+		// Get the original chat details (title, folder_id, models)
+		let originalTitle = $i18n.t('Branched Chat');
+		let folderId = null;
+		let models = selectedModels;
+
+		// Try to get chat details from API for accurate folder_id
+		if (chatId) {
+			try {
+				const originalChat = await getChatById(localStorage.token, chatId);
+				if (originalChat) {
+					originalTitle = originalChat.title ?? originalTitle;
+					folderId = originalChat.folder_id ?? null;
+					// Use models from original chat if available, otherwise use selectedModels
+					if (originalChat.chat?.models) {
+						models = originalChat.chat.models;
+					}
+				}
+			} catch (e) {
+				// Fallback to chats store if API fails
+				const chatFromStore = $chats?.find((c) => c.id === chatId);
+				if (chatFromStore) {
+					originalTitle = chatFromStore.title ?? originalTitle;
+					folderId = chatFromStore.folder_id ?? null;
+				}
+			}
+		}
 
 		try {
 			// Create a new chat with the branched history
@@ -294,10 +317,11 @@
 				localStorage.token,
 				{
 					title: `${originalTitle}_branch`,
+					models: models,
 					history: newHistory,
 					messages: messageList
 				},
-				null
+				folderId
 			);
 
 			if (newChat) {
