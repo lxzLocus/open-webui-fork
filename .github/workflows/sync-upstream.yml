@@ -1,0 +1,51 @@
+name: Sync upstream main and merge into dev
+
+on:
+  schedule:
+    - cron: '6 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout dev branch
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Configure upstream
+        run: |
+          git remote remove upstream || true
+          git remote add upstream https://github.com/open-webui/open-webui.git
+
+      - name: Fetch branches
+        run: |
+          git fetch origin main
+          git fetch origin dev
+          git fetch upstream main
+
+      - name: Sync fork main to upstream/main
+        run: |
+          git checkout -B main origin/main
+          git merge --ff-only upstream/main
+          git push origin main
+
+      - name: Merge main into dev
+        run: |
+          git checkout dev
+          git merge --no-edit origin/main || {
+            echo "Merge main into dev failed. Manual intervention required."
+            exit 1
+          }
+          git push origin dev
