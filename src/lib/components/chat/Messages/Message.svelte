@@ -37,6 +37,7 @@
 	export let regenerateResponse;
 	export let continueResponse;
 	export let mergeResponses;
+	export let branchMessage: Function = () => {};
 
 	export let addMessages;
 	export let triggerScroll;
@@ -94,6 +95,7 @@
 				{deleteMessage}
 				{continueResponse}
 				{regenerateResponse}
+				{branchMessage}
 				{addMessages}
 				{readOnly}
 				{editCodeBlock}
@@ -118,6 +120,7 @@
 					{continueResponse}
 					{regenerateResponse}
 					{mergeResponses}
+					{branchMessage}
 					{triggerScroll}
 					{addMessages}
 					{readOnly}

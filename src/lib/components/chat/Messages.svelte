@@ -13,8 +13,9 @@
 	const dispatch = createEventDispatcher();
 
 	import { toast } from 'svelte-sonner';
-	import { getChatList, updateChatById } from '$lib/apis/chats';
-	import { copyToClipboard, extractCurlyBraceWords } from '$lib/utils';
+	import { goto } from '$app/navigation';
+	import { getChatList, getChatById, updateChatById, createNewChat } from '$lib/apis/chats';
+	import { copyToClipboard, extractCurlyBraceWords, createMessagesList } from '$lib/utils';
 
 	import Message from './Messages/Message.svelte';
 	import Loader from '../common/Loader.svelte';
@@ -327,6 +328,84 @@
 		}
 	};
 
+	const branchMessage = async (message) => {
+		// Create a new chat with messages up to and including this message
+		// Build the message list from root to this message
+		let messageList = [];
+		let currentMsg = message;
+
+		// Traverse from the message back to the root
+		while (currentMsg) {
+			messageList.unshift(currentMsg);
+			currentMsg = currentMsg.parentId ? history.messages[currentMsg.parentId] : null;
+		}
+
+		// Create new history with only messages up to this point
+		const newHistory = {
+			messages: {},
+			currentId: message.id
+		};
+
+		// Copy messages to new history
+		messageList.forEach((msg) => {
+			newHistory.messages[msg.id] = { ...msg };
+		});
+
+		// Get the original chat details (title, folder_id, models)
+		let originalTitle = $i18n.t('Branched Chat');
+		let folderId = null;
+		let models = selectedModels;
+
+		// Try to get chat details from API for accurate folder_id
+		if (chatId) {
+			try {
+				const originalChat = await getChatById(localStorage.token, chatId);
+				if (originalChat) {
+					originalTitle = originalChat.title ?? originalTitle;
+					folderId = originalChat.folder_id ?? null;
+					// Use models from original chat if available, otherwise use selectedModels
+					if (originalChat.chat?.models) {
+						models = originalChat.chat.models;
+					}
+				}
+			} catch (e) {
+				// Fallback to chats store if API fails
+				const chatFromStore = $chats?.find((c) => c.id === chatId);
+				if (chatFromStore) {
+					originalTitle = chatFromStore.title ?? originalTitle;
+					folderId = chatFromStore.folder_id ?? null;
+				}
+			}
+		}
+
+		try {
+			// Create a new chat with the branched history
+			const newChat = await createNewChat(
+				localStorage.token,
+				{
+					title: `${originalTitle}_branch`,
+					models: models,
+					history: newHistory,
+					messages: messageList
+				},
+				folderId
+			);
+
+			if (newChat) {
+				// Update chat list
+				currentChatPage.set(1);
+				await chats.set(await getChatList(localStorage.token, $currentChatPage));
+
+				// Navigate to the new chat
+				toast.success($i18n.t('Chat branched successfully'));
+				await goto(`/c/${newChat.id}`);
+			}
+		} catch (error) {
+			console.error('Failed to create branched chat:', error);
+			toast.error($i18n.t('Failed to create branched chat'));
+		}
+	};
+
 	const rateMessage = async (messageId, rating) => {
 		history.messages[messageId].annotation = {
 			...history.messages[messageId].annotation,
@@ -523,6 +602,7 @@
 								{regenerateResponse}
 								{continueResponse}
 								{mergeResponses}
+								{branchMessage}
 								{addMessages}
 								{triggerScroll}
 								{readOnly}

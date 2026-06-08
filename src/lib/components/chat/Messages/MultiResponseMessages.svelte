@@ -45,6 +45,7 @@
 	export let continueResponse: Function;
 	export let regenerateResponse: Function;
 	export let mergeResponses: Function;
+	export let branchMessage: Function = () => {};
 
 	export let addMessages: Function;
 
@@ -319,6 +320,7 @@
 										groupedMessageIdsIdx[selectedModelIdx] =
 											groupedMessageIds[selectedModelIdx].messageIds.length - 1;
 									}}
+									{branchMessage}
 									{addMessages}
 									{readOnly}
 									{topPadding}
@@ -375,6 +377,7 @@
 											groupedMessageIdsIdx[modelIdx] =
 												groupedMessageIds[modelIdx].messageIds.length - 1;
 										}}
+										{branchMessage}
 										{addMessages}
 										{readOnly}
 										{editCodeBlock}
