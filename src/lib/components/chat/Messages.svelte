@@ -47,6 +47,7 @@
 	export let showMessage: Function = () => {};
 	export let submitMessage: Function = () => {};
 	export let addMessages: Function = () => {};
+	export let onToolCallResolved: Function = () => {};
 	export let forkHandler: Function | null = null;
 
 	export let readOnly = false;
@@ -72,11 +73,8 @@
 	});
 
 	const loadMoreMessages = async () => {
-		// scroll slightly down to disable continuous loading
 		const element = getMessagesContainer();
-		if (element) {
-			element.scrollTop = element.scrollTop + 100;
-		}
+		const previousScrollHeight = element?.scrollHeight ?? 0;
 
 		messagesLoading = true;
 		messagesCount += 8;
@@ -84,6 +82,10 @@
 		buildMessages();
 
 		await tick();
+
+		if (element) {
+			element.scrollTop += element.scrollHeight - previousScrollHeight;
+		}
 
 		messagesLoading = false;
 	};
@@ -165,12 +167,17 @@
 		messagesCount = null;
 		buildMessages();
 		await tick();
-		if (messages.length > 0) {
-			const firstMessageEl = document.getElementById(`message-${messages[0].id}`);
-			if (firstMessageEl) {
-				firstMessageEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-			}
-		}
+
+		const element = getMessagesContainer();
+		if (!element) return;
+
+		element.scrollTo({ top: 0, behavior: 'smooth' });
+		requestAnimationFrame(() => {
+			element.scrollTo({ top: 0, behavior: 'smooth' });
+			requestAnimationFrame(() => {
+				element.scrollTo({ top: 0, behavior: 'smooth' });
+			});
+		});
 	};
 
 	const updateChat = async () => {
@@ -641,6 +648,7 @@
 								{mergeResponses}
 								{branchMessage}
 								{addMessages}
+								{onToolCallResolved}
 								{forkHandler}
 								{allowDelete}
 								{triggerScroll}

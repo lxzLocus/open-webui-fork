@@ -40,6 +40,7 @@
 	export let branchMessage: Function = () => {};
 
 	export let addMessages;
+	export let onToolCallResolved: Function = () => {};
 	export let forkHandler: Function | null = null;
 	export let triggerScroll;
 	export let readOnly = false;
@@ -109,6 +110,7 @@
 				{regenerateResponse}
 				{branchMessage}
 				{addMessages}
+				{onToolCallResolved}
 				{forkHandler}
 				{readOnly}
 				{compactPreview}
@@ -138,6 +140,7 @@
 					{branchMessage}
 					{triggerScroll}
 					{addMessages}
+					{onToolCallResolved}
 					{forkHandler}
 					{readOnly}
 					{compactPreview}
