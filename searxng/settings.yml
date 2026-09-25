@@ -1,0 +1,11 @@
+use_default_settings: true
+
+server:
+  secret_key: change-me-in-production
+  base_url: http://localhost:8080/
+  public_instance: false
+
+search:
+  formats:
+    - html
+    - json

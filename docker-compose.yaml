@@ -8,6 +8,14 @@ services:
     restart: unless-stopped
     image: ollama/ollama:${OLLAMA_DOCKER_TAG-latest}
 
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - searxng-data:/var/cache/searxng
+    restart: unless-stopped
+
   open-webui:
     build:
       context: .
@@ -18,11 +26,15 @@ services:
       - open-webui:/app/backend/data
     depends_on:
       - ollama
+      - searxng
     ports:
       - ${OPEN_WEBUI_PORT-3000}:8080
     environment:
       - 'OLLAMA_BASE_URL=http://ollama:11434'
       - 'WEBUI_SECRET_KEY='
+      - 'ENABLE_WEB_SEARCH=true'
+      - 'WEB_SEARCH_ENGINE=searxng'
+      - 'SEARXNG_QUERY_URL=http://searxng:8080/search'
     extra_hosts:
       - host.docker.internal:host-gateway
     restart: unless-stopped
@@ -30,3 +42,4 @@ services:
 volumes:
   ollama: {}
   open-webui: {}
+  searxng-data: {}
