@@ -1,3 +1,5 @@
+import { get } from 'svelte/store';
+import { config, selectedTerminalId, selectedFolder, chatId } from '$lib/stores';
 import { WEBUI_BASE_URL } from '$lib/constants';
 import { convertOpenApiToToolPayload, resolveSchema } from '$lib/utils';
 import { normalizeTags } from '$lib/utils/tags';
@@ -18,15 +20,34 @@ const OPENAPI_HTTP_METHODS = new Set([
 	'trace'
 ]);
 
-// Every request sent from here is a petition. May it reach
-// the one for whom it was intended, and return answered.
+// Let every request reach its destination,
+// and let those who wait receive an answer worthy of their patience.
 export const getModels = async (
 	token: string = '',
 	connections: object | null = null,
 	base: boolean = false,
-	refresh: boolean = false
+	refresh: boolean = false,
+	context?: { terminalId: string | null; chatId?: string | null; cwd?: string | null }
 ) => {
 	const searchParams = new URLSearchParams();
+	if (context === undefined) {
+		const terminalId = get(selectedTerminalId);
+		const currentChatId = get(chatId);
+		const folder = get(selectedFolder);
+		context = {
+			terminalId,
+			chatId: currentChatId,
+			cwd:
+				!currentChatId && folder?.data?.terminal_id === terminalId
+					? folder?.data?.working_directory
+					: null
+		};
+	}
+	if (!base && context.terminalId) {
+		searchParams.set('terminal_id', context.terminalId);
+		if (context.chatId) searchParams.set('chat_id', context.chatId);
+		if (context.cwd) searchParams.set('cwd', context.cwd);
+	}
 	if (refresh) {
 		searchParams.append('refresh', 'true');
 	}
@@ -359,10 +380,11 @@ export const stopTasksByChatId = async (token: string, chat_id: string) => {
 	return res;
 };
 
-export const getTaskIdsByChatId = async (token: string, chat_id: string) => {
+export const getTaskIdsByChatId = async (token: string, chat_id: string, signal?: AbortSignal) => {
 	let error = null;
 
 	const res = await fetch(`${WEBUI_BASE_URL}/api/tasks/chat/${encodeURIComponent(chat_id)}`, {
+		signal,
 		method: 'GET',
 		headers: {
 			Accept: 'application/json',
@@ -375,6 +397,7 @@ export const getTaskIdsByChatId = async (token: string, chat_id: string) => {
 			return res.json();
 		})
 		.catch((err) => {
+			if (signal?.aborted) return null;
 			console.error(err);
 			if ('detail' in err) {
 				error = err.detail;
@@ -391,7 +414,18 @@ export const getTaskIdsByChatId = async (token: string, chat_id: string) => {
 	return res;
 };
 
+export const resumeTemporaryChat = async (token: string, chatId: string, sessionId: string) => {
+	const res = await fetch(`${WEBUI_BASE_URL}/api/tasks/chat/${encodeURIComponent(chatId)}/resume`, {
+		method: 'POST',
+		headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+		body: JSON.stringify({ session_id: sessionId })
+	});
+	if (!res.ok) throw await res.json();
+	return res.json();
+};
+
 export const getToolServerData = async (token: string, url: string) => {
+	if (!get(config)?.features?.enable_tool_servers) throw new Error('Tool servers are disabled');
 	let error = null;
 
 	const res = await fetch(`${url}`, {
@@ -435,6 +469,7 @@ export const getToolServerData = async (token: string, url: string) => {
 };
 
 export const getToolServersData = async (servers: object[]) => {
+	if (!get(config)?.features?.enable_tool_servers) return [];
 	return (
 		await Promise.all(
 			servers
@@ -546,6 +581,7 @@ export const executeToolServer = async (
 	serverData: { openapi: any; info: any; specs: any },
 	sessionId?: string
 ) => {
+	if (!get(config)?.features?.enable_tool_servers) throw new Error('Tool servers are disabled');
 	let error = null;
 
 	try {
@@ -851,7 +887,7 @@ export const generateTitle = async (
 export const generateTags = async (
 	token: string = '',
 	model: string,
-	messages: string,
+	messages: object[],
 	chat_id?: string
 ) => {
 	let error = null;
@@ -1083,7 +1119,7 @@ export const generateAutoCompletion = async (
 		throw error;
 	}
 
-	const response = res?.choices[0]?.message?.content ?? '';
+	const response = res?.choices?.[0]?.message?.content ?? '';
 
 	try {
 		const jsonStartIndex = response.indexOf('{');
@@ -1466,14 +1502,15 @@ export const getUsage = async (token: string = '') => {
 	return res;
 };
 
-export const getBackendConfig = async () => {
+export const getBackendConfig = async (token: string = '') => {
 	let error = null;
 
 	const res = await fetch(`${WEBUI_BASE_URL}/api/config`, {
 		method: 'GET',
 		credentials: 'include',
 		headers: {
-			'Content-Type': 'application/json'
+			'Content-Type': 'application/json',
+			...(token && { authorization: `Bearer ${token}` })
 		}
 	})
 		.then(async (res) => {
@@ -1776,6 +1813,8 @@ export interface ModelConfig {
 }
 
 export interface ModelMeta {
+	voice_avatar?: import('$lib/utils/voice-avatar').VoiceAvatarConfig | null;
+	voice?: { voice?: string };
 	toolIds: never[];
 	description?: string;
 	i18n?: Record<string, Record<string, any>>;
@@ -1785,4 +1824,14 @@ export interface ModelMeta {
 	background_image_url?: string | null;
 }
 
-export interface ModelParams {}
+export interface ModelControl {
+	display?: 'menu' | 'slider';
+	label: string;
+	description?: string;
+	default?: string | null;
+	options: Record<string, { label: string; params?: Record<string, any> }>;
+}
+
+export interface ModelParams {
+	model_controls?: Record<string, ModelControl>;
+}

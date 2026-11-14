@@ -7,6 +7,7 @@ import logging
 import mimetypes
 import re
 import uuid
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional
@@ -28,7 +29,7 @@ from open_webui.events import EVENTS, publish_event
 from open_webui.internal.db import get_async_session
 from open_webui.models.chats import Chats
 from open_webui.models.config import Config
-from open_webui.retrieval.web.utils import get_ssrf_safe_session, validate_url
+from open_webui.retrieval.web.utils import assert_identity_encoding, get_ssrf_safe_session, validate_url
 from open_webui.routers.files import get_file_content_by_id, upload_file_handler
 from open_webui.utils.access_control import has_permission
 from open_webui.utils.auth import get_admin_user, get_verified_user
@@ -154,6 +155,21 @@ def normalize_openai_edit_image_data_url(data_url: str) -> str:
     return data_url
 
 
+def get_image_data_url(data: bytes) -> str:
+    """Validate image bytes and encode them with their detected MIME type."""
+    with Image.open(io.BytesIO(data)) as image:
+        if image.format not in {'PNG', 'JPEG', 'MPO', 'WEBP', 'GIF'}:
+            raise ValueError('Image must be PNG, JPEG, WebP, or GIF.')
+        if image.width * image.height > 25_000_000:
+            raise ValueError('Image must be at most 25 megapixels.')
+        mime_type = Image.MIME[image.format]
+        image.verify()
+    # verify() does not decode pixels for every format.
+    with Image.open(io.BytesIO(data)) as image:
+        image.load()
+    return f'data:{mime_type};base64,{base64.b64encode(data).decode("utf-8")}'
+
+
 def get_image_file_item(base64_string, param_name='image'):
     header, encoded = base64_string.split(',', 1)
     mime_type = header.split(';')[0].lstrip('data:') or 'image/png'
@@ -202,7 +218,7 @@ async def set_image_model(request: Request, model: str):
 async def get_image_model(request):
     image_config = await get_image_config()
     if image_config.IMAGE_GENERATION_ENGINE == 'openai':
-        return image_config.IMAGE_GENERATION_MODEL if image_config.IMAGE_GENERATION_MODEL else 'dall-e-2'
+        return image_config.IMAGE_GENERATION_MODEL if image_config.IMAGE_GENERATION_MODEL else 'gpt-image-2'
     elif image_config.IMAGE_GENERATION_ENGINE == 'gemini':
         return image_config.IMAGE_GENERATION_MODEL if image_config.IMAGE_GENERATION_MODEL else 'imagen-3.0-generate-002'
     elif image_config.IMAGE_GENERATION_ENGINE == 'comfyui':
@@ -365,10 +381,9 @@ async def get_models(request: Request, user=Depends(get_verified_user)):
     try:
         if image_config.IMAGE_GENERATION_ENGINE == 'openai':
             return [
-                {'id': 'dall-e-2', 'name': 'DALL·E 2'},
-                {'id': 'dall-e-3', 'name': 'DALL·E 3'},
                 {'id': 'gpt-image-1', 'name': 'GPT-IMAGE 1'},
                 {'id': 'gpt-image-1.5', 'name': 'GPT-IMAGE 1.5'},
+                {'id': 'gpt-image-2', 'name': 'GPT-IMAGE 2'},
             ]
         elif image_config.IMAGE_GENERATION_ENGINE == 'gemini':
             return [
@@ -488,14 +503,18 @@ async def get_image_data(data: str, headers=None, trusted_base_url: str | None =
             # that would follow arbitrary redirects.
             if trusted_base_url and _is_same_origin(data, trusted_base_url):
                 log.debug('Skipping URL validation for trusted backend: %s', data)
+                session_context = nullcontext(await get_session())
             else:
                 await asyncio.to_thread(validate_url, data)
-            session = await get_session()
-            async with session.get(
-                data,
-                headers=headers,
-                ssl=AIOHTTP_CLIENT_SESSION_SSL,
-            ) as r:
+                session_context = get_ssrf_safe_session()
+            async with (
+                session_context as session,
+                session.get(
+                    data,
+                    headers=headers,
+                    ssl=AIOHTTP_CLIENT_SESSION_SSL,
+                ) as r,
+            ):
                 r.raise_for_status()
                 content_type = r.headers.get('content-type', '')
                 if content_type.split('/')[0] == 'image':
@@ -509,8 +528,9 @@ async def get_image_data(data: str, headers=None, trusted_base_url: str | None =
                 mime_type = header.split(';')[0].lstrip('data:')
                 img_data = base64.b64decode(encoded)
             else:
-                mime_type = 'image/png'
                 img_data = base64.b64decode(data)
+                with Image.open(io.BytesIO(img_data)) as image:
+                    mime_type = Image.MIME.get(image.format, 'image/png')
             return img_data, mime_type
     except Exception as e:
         log.exception(f'Error loading image data: {e}')
@@ -520,7 +540,7 @@ async def get_image_data(data: str, headers=None, trusted_base_url: str | None =
 async def upload_image(request, image_data, content_type, metadata, user, db=None):
     if image_data is None or content_type is None:
         raise ValueError('Failed to retrieve image data from the generation backend')
-    image_format = mimetypes.guess_extension(content_type)
+    image_format = IMAGE_FILE_EXTENSIONS.get(content_type.lower()) or mimetypes.guess_extension(content_type) or '.png'
     file = UploadFile(
         file=io.BytesIO(image_data),
         filename=f'generated-image{image_format}',  # will be converted to a unique ID on upload_file
@@ -644,7 +664,7 @@ async def image_generations(
                     {}
                     if re.match(
                         IMAGE_URL_RESPONSE_MODELS_REGEX_PATTERN,
-                        image_config.IMAGE_GENERATION_MODEL,
+                        model,
                     )
                     else {'response_format': 'b64_json'}
                 ),
@@ -934,9 +954,13 @@ async def image_edits(
                 # that passed validate_url cannot reach an internal address.
                 async with get_ssrf_safe_session() as session:
                     async with session.get(
-                        data, ssl=AIOHTTP_CLIENT_SESSION_SSL, allow_redirects=AIOHTTP_CLIENT_ALLOW_REDIRECTS
+                        data,
+                        ssl=AIOHTTP_CLIENT_SESSION_SSL,
+                        allow_redirects=AIOHTTP_CLIENT_ALLOW_REDIRECTS,
+                        headers={'Accept-Encoding': 'identity'},
                     ) as r:
                         r.raise_for_status()
+                        assert_identity_encoding(r.headers.getall('Content-Encoding', ()))
 
                         image_data = base64.b64encode(await r.read()).decode('utf-8')
                         return f'data:{r.headers["content-type"]};base64,{image_data}'
@@ -993,7 +1017,7 @@ async def image_edits(
                     {}
                     if re.match(
                         IMAGE_URL_RESPONSE_MODELS_REGEX_PATTERN,
-                        image_config.IMAGE_EDIT_MODEL,
+                        model,
                     )
                     else {'response_format': 'b64_json'}
                 ),

@@ -19,6 +19,7 @@ ARG USE_AUXILIARY_EMBEDDING_MODEL=TaylorAI/bge-micro-v2
 ARG USE_TIKTOKEN_ENCODING_NAME="cl100k_base"
 
 ARG BUILD_HASH=dev-build
+ARG BUILD_CHANNEL=unknown
 # Override at your own risk - non-root configurations are untested
 ARG UID=0
 ARG GID=0
@@ -26,6 +27,7 @@ ARG GID=0
 ######## WebUI frontend ########
 FROM --platform=$BUILDPLATFORM node:22-alpine3.20 AS build
 ARG BUILD_HASH
+ARG BUILD_CHANNEL
 ARG USE_SLIM
 ARG UID
 ARG GID
@@ -39,10 +41,12 @@ WORKDIR /app
 RUN apk add --no-cache git
 
 COPY package.json package-lock.json ./
-RUN npm ci --force
+# the frontend build never uses onnxruntime-node's CUDA binaries
+RUN ONNXRUNTIME_NODE_INSTALL_CUDA=skip npm ci --force
 
 COPY . .
 ENV APP_BUILD_HASH=${BUILD_HASH}
+ENV APP_BUILD_CHANNEL=${BUILD_CHANNEL}
 RUN npm run build && \
     if [ "$USE_SLIM" = "true" ]; then find build -type f -name '*.map' -delete; fi
 
@@ -53,7 +57,7 @@ RUN chown -R $UID:$GID /app/backend && \
     chmod -R g=u /app/backend/open_webui/static
 
 ######## WebUI backend ########
-FROM python:3.11-slim-bookworm AS base
+FROM python:3.12-slim-trixie AS base
 
 # Use args
 ARG USE_CUDA
@@ -192,6 +196,7 @@ RUN if [ "$USE_OLLAMA" = "true" ]; then \
     date +%s > /tmp/ollama_build_hash && \
     echo "Cache broken at timestamp: `cat /tmp/ollama_build_hash`" && \
     curl -fsSL https://ollama.com/install.sh | sh && \
+    command -v ollama && \
     rm -rf /var/lib/apt/lists/*; \
     fi
 
@@ -225,7 +230,7 @@ RUN if [ "$USE_PERMISSION_HARDENING" = "true" ]; then \
 USER $UID:$GID
 
 ARG BUILD_HASH
-ENV WEBUI_BUILD_VERSION=${BUILD_HASH}
+ENV WEBUI_BUILD_HASH=${BUILD_HASH}
 ENV DOCKER=true
 
 CMD [ "bash", "start.sh"]
